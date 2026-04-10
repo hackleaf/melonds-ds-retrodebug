@@ -41,6 +41,9 @@ add_library(melondsds_libretro ${LIBRARY_TYPE}
     core/tasks.cpp
     core/test.cpp
     core/test.hpp
+    retrodebug/retrodebug.h
+    retrodebug/retrodebug_nds.h
+    retrodebug/retrodebug_nds.cpp
     environment.cpp
     environment.hpp
     exceptions.cpp

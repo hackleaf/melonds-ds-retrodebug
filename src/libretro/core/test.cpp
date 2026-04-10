@@ -17,6 +17,7 @@
 #include "test.hpp"
 
 #include <string/stdstring.h>
+#include "retrodebug/retrodebug_nds.h"
 
 #include "core.hpp"
 #include "environment.hpp"
@@ -225,6 +226,9 @@ extern "C" unsigned melondsds_get_controller_port_device(unsigned port) noexcept
 }
 
 extern "C" retro_proc_address_t MelonDsDs::GetRetroProcAddress(const char* sym) noexcept {
+    if (string_is_equal(sym, "rd_set_debugger"))
+        return reinterpret_cast<retro_proc_address_t>(rd_nds_set_debugger);
+
     if (string_is_equal(sym, "libretropy_add_integers"))
         return reinterpret_cast<retro_proc_address_t>(libretropy_add_integers);
 

@@ -18,6 +18,7 @@
 
 #include <charconv>
 #include <DSi.h>
+#include "retrodebug/retrodebug_nds.h"
 #include <GPU3D_OpenGL.h>
 #include <GPU3D_Soft.h>
 
@@ -98,6 +99,8 @@ retro_system_av_info MelonDsDs::CoreState::GetSystemAvInfo() const noexcept {
 }
 
 void MelonDsDs::CoreState::UnloadGame() noexcept {
+    rd_nds_deinit();
+
     if (Console && Console->IsRunning()) {
         // If the NDS wasn't already stopped due to some internal event...
         Console->Stop();
@@ -138,6 +141,8 @@ void MelonDsDs::CoreState::Run() noexcept {
 
     retro_assert(Console != nullptr);
     melonDS::NDS& nds = *Console;
+
+    rd_nds_frame_start();
 
     if (retro::is_variable_updated()) [[unlikely]] {
         // If any settings have changed...
@@ -474,6 +479,8 @@ void MelonDsDs::CoreState::StartConsole() {
     }
 
     Console->Start();
+
+    rd_nds_init(Console.get());
 
     retro::info("Started emulated console");
 }

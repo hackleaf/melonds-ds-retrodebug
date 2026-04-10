@@ -1,0 +1,97 @@
+diff --git a/src/ARM.h b/src/ARM.h
+--- a/src/ARM.h
++++ b/src/ARM.h
+@@ -170,6 +170,13 @@ public:
+     u32 DataRegion;
+     u32 DataCycles;
+
++    // Retrodebug execution hook: called before each instruction.
++    // Returns true to request halt (breakpoint hit).
++    // Set by the libretro retrodebug integration layer.
++    bool (*RetroDebugHook)(void *userdata, u32 addr, bool thumb);
++    void *RetroDebugUserData;
++    bool RetroDebugHalt;  // set to true when hook requests halt
++
+     u32 R[16]; // heh
+     u32 CPSR;
+     u32 R_FIQ[8]; // holding SPSR too
+diff --git a/src/ARM.cpp b/src/ARM.cpp
+--- a/src/ARM.cpp
++++ b/src/ARM.cpp
+@@ -143,6 +143,9 @@ ARM::ARM(u32 num, bool jit, melonDS::NDS& nds) :
+     CodeRegion = 0;
+     DataRegion = 0;
+     DataCycles = 0;
++    RetroDebugHook = nullptr;
++    RetroDebugUserData = nullptr;
++    RetroDebugHalt = false;
+ }
+
+ ARM::~ARM()
+@@ -653,6 +656,16 @@ void ARMv5::Execute()
+             if (CPSR & 0x20) // THUMB
+             {
++                // Retrodebug execution hook (before instruction fetch)
++                if (RetroDebugHook)
++                {
++                    u32 instrAddr = R[15] - 2;
++                    if (RetroDebugHook(RetroDebugUserData, instrAddr, true))
++                    {
++                        RetroDebugHalt = true;
++                        break;
++                    }
++                }
++
+                 if constexpr (mode == CPUExecuteMode::InterpreterGDB)
+                     GdbCheckC();
+
+@@ -670,6 +683,16 @@ void ARMv5::Execute()
+             else
+             {
++                // Retrodebug execution hook (before instruction fetch)
++                if (RetroDebugHook)
++                {
++                    u32 instrAddr = R[15] - 4;
++                    if (RetroDebugHook(RetroDebugUserData, instrAddr, false))
++                    {
++                        RetroDebugHalt = true;
++                        break;
++                    }
++                }
++
+                 if constexpr (mode == CPUExecuteMode::InterpreterGDB)
+                     GdbCheckC();
+
+@@ -727,6 +750,16 @@ void ARMv4::Execute()
+             if (CPSR & 0x20) // THUMB
+             {
++                // Retrodebug execution hook (before instruction fetch)
++                if (RetroDebugHook)
++                {
++                    u32 instrAddr = R[15] - 2;
++                    if (RetroDebugHook(RetroDebugUserData, instrAddr, true))
++                    {
++                        RetroDebugHalt = true;
++                        break;
++                    }
++                }
++
+                 if constexpr (mode == CPUExecuteMode::InterpreterGDB)
+                     GdbCheckC();
+
+@@ -746,6 +779,16 @@ void ARMv4::Execute()
+             else
+             {
++                // Retrodebug execution hook (before instruction fetch)
++                if (RetroDebugHook)
++                {
++                    u32 instrAddr = R[15] - 4;
++                    if (RetroDebugHook(RetroDebugUserData, instrAddr, false))
++                    {
++                        RetroDebugHalt = true;
++                        break;
++                    }
++                }
++
+                 if constexpr (mode == CPUExecuteMode::InterpreterGDB)
+                     GdbCheckC();
