@@ -52,7 +52,10 @@ rd_StepMode;
 
 typedef struct rd_MiscBreakpoint {
     struct {
-        /* Breakpoint info */
+        /* e.g. "rtc_reg" */
+        char const* id;
+        
+        /* Human-readable description */
         char const* description;
     }
     v1;
@@ -272,6 +275,207 @@ typedef struct rd_System {
         /* Supported breakpoints not covered by specific functions.
          * Null-terminated pointer array. */
         rd_MiscBreakpoint const* const* break_points;
+        
+        /* ======================================================================== */
+        /* Schema Format                                                             */
+        /* ======================================================================== */
+        /*
+         * Schemata describe the binary layout of C structs passed through the
+         * retrodebug interface (misc event data, proc-address output, etc.).
+         * They let the frontend interpret void* payloads without compile-time
+         * knowledge of system-specific types, and let scripting languages
+         * (e.g. Lua) marshal data automatically.
+         *
+         * rd_System.v1.schemata is a null-terminated array of schema strings.
+         * A schema's ID is its 0-based index in the array.  The array must be
+         * fully populated before retro_load_game() returns.
+         *
+         *
+         * STRING FORMAT
+         * -------------
+         *
+         *     name:field;field;...
+         *
+         * "name" is a valid C identifier.  Fields are semicolon-separated.
+         * A trailing semicolon is permitted.  Whitespace around ; and :
+         * is ignored.
+         *
+         *
+         * FIELD FORMAT
+         * ------------
+         *
+         *     TYPE NAME ["description"]          data field
+         *     p[N]                               N bytes of explicit padding
+         *
+         * TYPE is:
+         *
+         *     BaseType ([!] [*] [ArraySpec])*
+         *
+         * BASE TYPES
+         * ----------
+         *
+         *   u8   u16   u32   u64                 unsigned integers
+         *   s8   s16   s32   s64                 signed integers
+         *
+         * Append "be" or "le" for explicit byte order (e.g. u16be, s32le).
+         * Without a suffix the native byte order is assumed.
+         *
+         * ALIASES
+         *
+         *   str       s8[|0]*                    immutable C string pointer
+         *
+         * CUSTOM TYPES
+         *
+         * A schema name may appear as a base type.  Without a pointer modifier
+         * the referenced schema must have a lower index (so its size is known
+         * at parse time).  Pointer-to-custom-type has no such restriction.
+         *
+         * POINTER (*)
+         * -----------
+         *
+         * A native-width pointer (typically 4 or 8 bytes depending on host).
+         *
+         *   u32*               pointer to u32
+         *   rd_foo*            pointer to custom type rd_foo
+         *
+         * MUTABILITY (!)
+         * --------------
+         *
+         * ! marks a field as mutable:
+         *
+         *   T!   value         mutable scalar -- handler may modify this field
+         *   T!*  buf           pointer to mutable data -- handler may write
+         *                      through the pointer; pointer itself is immutable
+         *   T*!  ptr           mutable pointer -- handler may change the pointer
+         *                      value; pointed-to data is immutable
+         *   T!*! ptr           mutable pointer to mutable data -- handler may
+         *                      change both the pointer and the pointed-to data
+         *
+         * Fields without ! should not be modified by the frontend.
+         *
+         *
+         * ARRAY SPECIFICATIONS
+         * --------------------
+         *   [N]                fixed-length array of N elements
+         *   [N|sym]            N slots allocated, actual count given by field "sym"
+         *   [N|0]              N slots allocated, null/zero-terminated
+         *   []                 variable-length (must be last field in struct)
+         *   [|sym]             variable-length, count given by field "sym" (must be last)
+         *   [|0]               variable-length, null/zero-terminated (must be last)
+         *
+         * EXAMPLE:
+         *  
+         *   u32le![2]*[16]*    pointer to 16 consecutive pointers to a pair of mutable little-endian 32-bit unsigned values.
+         *
+         * STRUCT LAYOUT
+         * -------------
+         *
+         * Schemata describe the in-memory layout of real C structs.  By
+         * default the layout follows the platform ABI's natural-alignment
+         * rules.  Struct layout is defined by the platform ABI, not the
+         * compiler -- all conforming compilers on the same platform produce
+         * identical layouts.  Since libretro cores are loaded in-process,
+         * core and frontend always share the same ABI.
+         *
+         * It is recommended (but not required) to pack event data structs
+         * and use explicit p[N] padding fields.  This makes the schema
+         * self-documenting and eliminates any ambiguity about implicit
+         * padding between compilers on different platforms.
+         *
+         *
+         * EXAMPLES
+         * --------
+         *
+         * PSX GPU command post:
+         *   "rd_psx_gpu_post:"
+         *       "u8 port \"0=GP0 1=GP1\";"
+         *       "u8 source \"0=CPU 2=DMA ch2\";"
+         *       "u16 word_count;"
+         *       "u32 pc;"
+         *       "u32[16|word_count] words"
+         *
+         * PSX DMA transfer:
+         *   "rd_psx_dma_transfer:"
+         *       "u8 channel \"0=MDEC_IN 1=MDEC_OUT 2=GPU 3=CDC 4=SPU 5=CH5 6=OT\";"
+         *       "u8 direction \"0=DEV->RAM 1=RAM->DEV\";"
+         *       "p[2];"
+         *       "u32 base_addr;"
+         *       "u32 word_count;"
+         *       "u32 chcr"
+         *
+         * Mega Drive VDP register write:
+         *   "rd_md_vdp_reg:u8 reg;u8 value"
+         *
+         * Mega Drive DMA:
+         *   "rd_md_dma:"
+         *       "u8 type \"0=68K->VRAM 1=Fill 2=Copy\";"
+         *       "p[3];"
+         *       "u32 source;"
+         *       "u32 dest;"
+         *       "u32 length"
+         *
+         * Saturn DMA transfer:
+         *   "rd_saturn_dma_transfer:"
+         *       "u8 level;"
+         *       "u8 indirect \"0=direct 1=indirect\";"
+         *       "p[2];"
+         *       "u32 src_addr;"
+         *       "u32 dst_addr;"
+         *       "u32 byte_count;"
+         *       "u8 read_add;"
+         *       "u8 write_add \"0=none 1=+4 2=+2\";"
+         *       "u8 src_bus \"0=A 1=B 2=C\";"
+         *       "u8 dst_bus \"0=A 1=B 2=C\""
+         *
+         * Saturn CDB event:
+         *   "rd_saturn_cdb_event:"
+         *       "u8 event \"0=command 1=sector 2=DT_start 3=DT_end\";"
+         *       "u8 cmd;"
+         *       "p[2];"
+         *       "u32 p0;"
+         *       "u32 p1;"
+         *       "u32 p2;"
+         *       "u32 p3"
+         *
+         * Saturn SCSP slot state (used by proc-address, not events):
+         *   "rd_ss_scsp_slot_state:"
+         *       "u16 current_addr;"
+         *       "u16 env_level \"0=loud 0x3FF=silent\";"
+         *       "u8 env_phase \"0=Atk 1=Dec1 2=Dec2 3=Rel\";"
+         *       "u8 in_loop;"
+         *       "p[2]"
+         *
+         * Saturn SCSP key-on/off:
+         *   "rd_ss_scsp_key:"
+         *       "u8 slot;"
+         *       "u8 key_on;"
+         *       "u8 source_ctrl \"SSCTL: 0=Mem 1=Noise 2=Zero\";"
+         *       "u8 wf_8bit;"
+         *       "u8 loop_mode \"LPCTL: 0=Off 1=Normal 2=Rev 3=Alt\";"
+         *       "p[3];"
+         *       "u32 start_addr;"
+         *       "u16 loop_start;"
+         *       "u16 loop_end;"
+         *       "u8 octave;"
+         *       "p[1];"
+         *       "u16 freq_num;"
+         *       "u8 total_level \"0=loudest 0xFF=silent\";"
+         *       "p[3]"
+         *
+         * NDS RTC register access (mutable fields for handler response):
+         *   "rd_nds_rtc_reg:"
+         *       "u8 reg;"
+         *       "u8 is_read;"
+         *       "u8! value;"
+         *       "u8! handled"
+         */
+
+        /* Data-structure schemata for misc events and other untyped data.
+         * Null-terminated array of schema definition strings (see "Schema
+         * Format" above).  A schema's ID is its 0-based index.  Must be
+         * fully populated before retro_load_game() returns.
+         * May be NULL if the core defines no schemata. */
+        char const* const* schemata;
 
         /* Write human-readable info about the loaded content (cartridge header,
            mapper, game title, checksum, etc.) into outbuff.
@@ -347,6 +551,7 @@ typedef struct rd_MiscBreakpointEvent {
     rd_MiscBreakpoint const* breakpoint;
     void* data;
     size_t data_size;
+    int schema_id; /* index into rd_System.v1.schemata; negative = no schema */
 }
 rd_MiscBreakpointEvent;
 

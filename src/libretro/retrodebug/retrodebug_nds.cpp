@@ -7,7 +7,27 @@
  */
 
 #include "retrodebug.h"
-#include "retrodebug_nds.h"
+
+/* Local struct definition — layout must match schema below */
+struct rd_nds_rtc_reg_event {
+    uint8_t  reg;
+    uint8_t  is_read;
+    uint8_t  value;
+    uint8_t  handled;
+};
+
+enum {
+    RD_SCHEMA_NDS_RTC_REG = 0,
+};
+
+static const char *rd_schemata[] = {
+    "rd_nds_rtc_reg:"
+        "u8 reg;"
+        "u8 is_read;"
+        "u8! value;"
+        "u8! handled",
+    nullptr,
+};
 
 #include <cstring>
 #include <cstdio>
@@ -276,7 +296,8 @@ static const rd_Cpu rd_cpu_arm7 = { .v1 = {
 
 static const rd_MiscBreakpoint rd_misc_rtc_reg = {
     .v1 = {
-        .description = "RTC_REG",
+        .id = "rtc_reg",
+        .description = "RTC register access",
     },
 };
 
@@ -291,6 +312,9 @@ static std::vector<MiscSub> g_misc_subs;
 /* RTC callback — called from melonDS RTC::ByteIn/CmdRead/CmdWrite */
 static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
 {
+    fprintf(stderr, "[melonDS-rd] rtc_reg_access cmd=0x%02X is_read=%d value=%d g_dif=%p subs=%zu\n",
+            cmd, is_read, value ? *value : -1, (void*)g_dif, g_misc_subs.size());
+
     if (!g_dif || !g_dif->v1.handle_event) return false;
 
     /* Check if anyone subscribed to RTC_REG */
@@ -309,6 +333,7 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
         event.misc.breakpoint = &rd_misc_rtc_reg;
         event.misc.data = &rtc_ev;
         event.misc.data_size = sizeof(rtc_ev);
+        event.misc.schema_id = RD_SCHEMA_NDS_RTC_REG;
 
         g_dif->v1.handle_event(nullptr, sub.id, &event);
 
@@ -335,6 +360,7 @@ static const rd_System rd_system = { .v1 = {
     .memory_regions = rd_extra_mem,
     .filesystems = nullptr,
     .break_points = rd_misc_bps,
+    .schemata = rd_schemata,
 }};
 
 /* ======================================================================== */
