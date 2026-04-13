@@ -8,12 +8,16 @@
 
 #include "retrodebug.h"
 
-/* Local struct definition — layout must match schema below */
+/* Local struct definition — layout must match schema below.
+ *
+ * The schema uses natural alignment: u8 fields are 1-byte, u32 is
+ * 4-byte aligned. We pad explicitly so the C layout matches. */
 struct rd_nds_rtc_reg_event {
     uint8_t  reg;
     uint8_t  is_read;
     uint8_t  value;
     uint8_t  handled;
+    uint32_t raise_irq;  /* mask of ARM7 IF bits to raise if handled */
 };
 
 enum {
@@ -25,7 +29,8 @@ static const char *rd_schemata[] = {
         "u8 reg;"
         "u8 is_read;"
         "u8! value;"
-        "u8! handled",
+        "u8! handled;"
+        "u32! raise_irq",
     nullptr,
 };
 
@@ -309,15 +314,26 @@ struct MiscSub {
 };
 static std::vector<MiscSub> g_misc_subs;
 
-/* RTC callback — called from melonDS RTC::ByteIn/CmdRead/CmdWrite */
+/* Controls whether every RTC byte is logged to stderr. Very noisy —
+ * enable only when debugging the RTCom handshake itself. */
+static bool g_rtc_trace = false;
+
+/* RTC callback — called from melonDS RTC::ByteIn/CmdRead/CmdWrite.
+ * Gives subscribers a chance to intercept RTC SPI byte traffic.
+ * On a handled read, the substituted value is written back through *value.
+ * On any handled access, if rtc_ev.raise_irq is non-zero, those bits are
+ * OR'd into ARM7's IF so the next ARM dispatch services them. */
 static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
 {
-    fprintf(stderr, "[melonDS-rd] rtc_reg_access cmd=0x%02X is_read=%d value=%d g_dif=%p subs=%zu\n",
-            cmd, is_read, value ? *value : -1, (void*)g_dif, g_misc_subs.size());
+    if (g_rtc_trace) {
+        fprintf(stderr, "[melonDS-rd] rtc cmd=0x%02X %s val=%d subs=%zu\n",
+                cmd, is_read ? "R" : "W", value ? *value : -1,
+                g_misc_subs.size());
+    }
 
     if (!g_dif || !g_dif->v1.handle_event) return false;
 
-    /* Check if anyone subscribed to RTC_REG */
+    /* Check if anyone subscribed to rtc_reg */
     for (auto &sub : g_misc_subs) {
         if (sub.bp != &rd_misc_rtc_reg) continue;
 
@@ -326,6 +342,7 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
         rtc_ev.is_read = is_read ? 1 : 0;
         rtc_ev.value = value ? *value : 0;
         rtc_ev.handled = 0;
+        rtc_ev.raise_irq = 0;
 
         rd_Event event = {};
         event.type = RD_EVENT_MISC;
@@ -337,12 +354,25 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
 
         g_dif->v1.handle_event(nullptr, sub.id, &event);
 
-        if (rtc_ev.handled && is_read && value) {
+        if (!rtc_ev.handled) continue;
+
+        if (is_read && value)
             *value = rtc_ev.value;
-            return true;
+
+        /* Honour IRQ request. raise_irq is a mask of ARM7 IF bits
+         * (e.g. 0x01000000 = IRQ_NETWORK). Walk set bits and call
+         * SetIRQ(cpu=1, bit_index), which is the core's API for
+         * raising a hardware IRQ line. */
+        if (rtc_ev.raise_irq && g_nds) {
+            uint32_t mask = rtc_ev.raise_irq;
+            while (mask) {
+                int bit = __builtin_ctz(mask);
+                mask &= mask - 1;
+                g_nds->SetIRQ(1, bit);
+            }
         }
-        if (rtc_ev.handled && !is_read)
-            return true;
+
+        return true;
     }
     return false;
 }
