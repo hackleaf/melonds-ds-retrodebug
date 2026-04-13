@@ -18,6 +18,8 @@ struct rd_nds_rtc_reg_event {
     uint8_t  value;
     uint8_t  handled;
     uint32_t raise_irq;  /* mask of ARM7 IF bits to raise if handled */
+    uint8_t  byte_index; /* output byte index for multi-byte reads */
+    uint8_t  _pad[3];
 };
 
 enum {
@@ -30,7 +32,9 @@ static const char *rd_schemata[] = {
         "u8 is_read;"
         "u8! value;"
         "u8! handled;"
-        "u32! raise_irq",
+        "u32! raise_irq;"
+        "u8 byte_index;"
+        "p[3]",
     nullptr,
 };
 
@@ -366,6 +370,7 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
         rtc_ev.value = logical_val;  /* logical byte value */
         rtc_ev.handled = 0;
         rtc_ev.raise_irq = 0;
+        rtc_ev.byte_index = 0;
 
         rd_Event event = {};
         event.type = RD_EVENT_MISC;
@@ -381,6 +386,37 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
 
         if (is_read && value)
             *value = rtc_bitrev8(rtc_ev.value);
+
+        /* Multi-byte reads: the core only invokes our hook once per RTC
+         * transaction (at the cmd-byte phase). For opcodes that produce
+         * more than one output byte (e.g. 0x6B alarm-time-2 = 2 bytes,
+         * 0x71 counter-ext = 3 bytes), populate Output[1..] directly
+         * via the core's SetHookOutputByte helper by re-invoking the
+         * subscriber with byte_index=1,2,... until it returns handled=0
+         * or we hit the 8-byte Output buffer cap. */
+        if (is_read && g_nds) {
+            for (unsigned i = 1; i < 8; i++) {
+                rd_nds_rtc_reg_event ev_n = {};
+                ev_n.reg = logical_cmd;
+                ev_n.is_read = 1;
+                ev_n.value = 0;
+                ev_n.handled = 0;
+                ev_n.raise_irq = 0;
+                ev_n.byte_index = (uint8_t)i;
+
+                rd_Event e_n = {};
+                e_n.type = RD_EVENT_MISC;
+                e_n.can_halt = false;
+                e_n.misc.breakpoint = &rd_misc_rtc_reg;
+                e_n.misc.data = &ev_n;
+                e_n.misc.data_size = sizeof(ev_n);
+                e_n.misc.schema_id = RD_SCHEMA_NDS_RTC_REG;
+
+                g_dif->v1.handle_event(nullptr, sub.id, &e_n);
+                if (!ev_n.handled) break;
+                g_nds->RTC.SetHookOutputByte((u8)i, rtc_bitrev8(ev_n.value));
+            }
+        }
 
         /* Honour IRQ request. raise_irq is a mask of ARM7 IF bits
          * (e.g. 0x01000000 = IRQ_NETWORK). Walk set bits and call

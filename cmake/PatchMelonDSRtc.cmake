@@ -14,6 +14,29 @@
 # Called from FetchDependencies.cmake after melonDS source is fetched.
 # MELONDS_SRC must be set to the fetched melonDS source directory.
 
+# Expose a write accessor for Output[] so retrodebug subscribers can populate
+# Output[1..N-1] for multi-byte reads (e.g. 0x6B = 2 bytes alarm-time-2,
+# 0x71 = 3 bytes counter-ext) at cmd-byte phase. Adds an inline public method
+# SetHookOutputByte(u8 pos, u8 val) to RTC.h just before the existing
+# public/private line that declares OnRegAccess.
+file(READ "${MELONDS_SRC}/src/RTC.h" RTC_H)
+
+set(_old_h "    bool (*OnRegAccess)(void *userdata, u8 cmd, bool is_read, u8 *value) = nullptr;")
+set(_new_h [[    bool (*OnRegAccess)(void *userdata, u8 cmd, bool is_read, u8 *value) = nullptr;
+
+    // Retrodebug helper: write Output[pos] directly from a subscriber.
+    // Used to populate the non-first bytes of a multi-byte read response
+    // at cmd-byte phase before the ARM shifts them out of the SPI wire.
+    void SetHookOutputByte(u8 pos, u8 val) { if (pos < 8) Output[pos] = val; }]])
+
+string(REPLACE "${_old_h}" "${_new_h}" RTC_H_NEW "${RTC_H}")
+if (RTC_H_NEW STREQUAL RTC_H)
+    message(WARNING "PatchMelonDSRtc: RTC.h OnRegAccess pattern not found — SetHookOutputByte patch skipped")
+else()
+    file(WRITE "${MELONDS_SRC}/src/RTC.h" "${RTC_H_NEW}")
+    message(STATUS "  Patched RTC.h (added SetHookOutputByte)")
+endif()
+
 file(READ "${MELONDS_SRC}/src/RTC.cpp" RTC_CPP)
 
 set(_old [[
