@@ -318,6 +318,19 @@ static std::vector<MiscSub> g_misc_subs;
  * enable only when debugging the RTCom handshake itself. */
 static bool g_rtc_trace = false;
 
+/* 8-bit reverse lookup. NDS RTC SPI is bit-banged MSB-first by the sender
+ * but melonDS's accumulator stores LSB-first, so every byte our hook gets
+ * is the bit-reversal of the logical opcode (e.g., what the protocol docs
+ * call 0x6E arrives as 0x76). Reverse once here so subscribers work with
+ * the documented opcode number. */
+static inline uint8_t rtc_bitrev8(uint8_t b)
+{
+    b = (b >> 4) | (b << 4);
+    b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2);
+    b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1);
+    return b;
+}
+
 /* RTC callback — called from melonDS RTC::ByteIn/CmdRead/CmdWrite.
  * Gives subscribers a chance to intercept RTC SPI byte traffic.
  * On a handled read, the substituted value is written back through *value.
@@ -325,10 +338,20 @@ static bool g_rtc_trace = false;
  * OR'd into ARM7's IF so the next ARM dispatch services them. */
 static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
 {
+    /* NDS RTC SPI is bit-banged MSB-first on the wire, but melonDS's
+     * input accumulator and output shifter both use LSB-first bit order
+     * (they mirror the wire), so every byte (both the cmd byte and the
+     * data bytes) arrives at this hook bit-reversed relative to what the
+     * protocol docs / client code call it. Reverse both directions so
+     * subscribers see the logical values, and reverse the substituted
+     * read value back on the way out. */
+    u8 logical_cmd = rtc_bitrev8(cmd);
+    u8 logical_val = value ? rtc_bitrev8(*value) : 0;
+
     if (g_rtc_trace) {
-        fprintf(stderr, "[melonDS-rd] rtc cmd=0x%02X %s val=%d subs=%zu\n",
-                cmd, is_read ? "R" : "W", value ? *value : -1,
-                g_misc_subs.size());
+        fprintf(stderr, "[melonDS-rd] rtc cmd=0x%02X %s val=0x%02X (wire cmd=0x%02X val=0x%02X) subs=%zu\n",
+                logical_cmd, is_read ? "R" : "W", logical_val,
+                cmd, value ? *value : 0, g_misc_subs.size());
     }
 
     if (!g_dif || !g_dif->v1.handle_event) return false;
@@ -338,9 +361,9 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
         if (sub.bp != &rd_misc_rtc_reg) continue;
 
         rd_nds_rtc_reg_event rtc_ev = {};
-        rtc_ev.reg = cmd;
+        rtc_ev.reg = logical_cmd;  /* logical opcode */
         rtc_ev.is_read = is_read ? 1 : 0;
-        rtc_ev.value = value ? *value : 0;
+        rtc_ev.value = logical_val;  /* logical byte value */
         rtc_ev.handled = 0;
         rtc_ev.raise_irq = 0;
 
@@ -357,13 +380,17 @@ static bool rtc_reg_access(void *, u8 cmd, bool is_read, u8 *value)
         if (!rtc_ev.handled) continue;
 
         if (is_read && value)
-            *value = rtc_ev.value;
+            *value = rtc_bitrev8(rtc_ev.value);
 
         /* Honour IRQ request. raise_irq is a mask of ARM7 IF bits
          * (e.g. 0x01000000 = IRQ_NETWORK). Walk set bits and call
          * SetIRQ(cpu=1, bit_index), which is the core's API for
          * raising a hardware IRQ line. */
         if (rtc_ev.raise_irq && g_nds) {
+            if (g_rtc_trace) {
+                fprintf(stderr, "[melonDS-rd] raise_irq mask=0x%08X\n",
+                        rtc_ev.raise_irq);
+            }
             uint32_t mask = rtc_ev.raise_irq;
             while (mask) {
                 int bit = __builtin_ctz(mask);

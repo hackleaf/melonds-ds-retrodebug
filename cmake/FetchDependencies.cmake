@@ -70,6 +70,11 @@ set(GLM_ENABLE_CXX_17 ON CACHE BOOL "" FORCE)
 option(ENABLE_TESTING "Enable unit testing." OFF)
 FetchContent_MakeAvailable(melonDS libretro-common embed-binaries glm zlib libslirp pntr fmt yamc span-lite date)
 
+# Patch the fetched melonDS core's RTC.cpp so OnRegAccess sees the correct
+# is_read classification. See PatchMelonDSRtc.cmake for details.
+set(MELONDS_SRC "${melonds_SOURCE_DIR}")
+include("${CMAKE_CURRENT_LIST_DIR}/PatchMelonDSRtc.cmake")
+
 if (TRACY_ENABLE)
     set(BUILD_SHARED_LIBS OFF)
     option(TRACY_DELAYED_INIT "" ON)
