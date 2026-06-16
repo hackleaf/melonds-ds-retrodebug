@@ -45,6 +45,7 @@ namespace MelonDsDs {
     class ScreenLayoutData;
     class MicrophoneState;
     extern const struct retro_input_descriptor input_descriptors[];
+    extern const struct retro_input_descriptor input_descriptors_pure[];
 
     struct InputPollResult {
         uint32_t JoypadButtons;

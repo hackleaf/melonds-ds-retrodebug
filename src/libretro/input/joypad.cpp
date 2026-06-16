@@ -83,33 +83,50 @@ void JoypadState::Update(const InputPollResult& poll) noexcept {
     _consoleButtons = ndsInputBits;
 
     _previousToggleLidButton = _toggleLidButton;
-    _toggleLidButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_L3);
-
     _previousMicButton = _micButton;
-    _micButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_L2);
-
     _previousCycleLayoutButton = _cycleLayoutButton;
-    _cycleLayoutButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_R2);
-
     _previousJoystickTouchButton = _joystickTouchButton;
     _previousJoystickRawDirection = _joystickRawDirection;
-
     _previousLightLevelUpCombo = _lightLevelUpCombo;
-    _lightLevelUpCombo = ((poll.JoypadButtons & LIGHT_LEVEL_UP_COMBO) == LIGHT_LEVEL_UP_COMBO) ||
-                        ((poll.JoypadButtons & LIGHT_LEVEL_UP_COMBO_ALT) == LIGHT_LEVEL_UP_COMBO_ALT);
-
     _previousLightLevelDownCombo = _lightLevelDownCombo;
-    _lightLevelDownCombo = ((poll.JoypadButtons & LIGHT_LEVEL_DOWN_COMBO) == LIGHT_LEVEL_DOWN_COMBO) ||
-                          ((poll.JoypadButtons & LIGHT_LEVEL_DOWN_COMBO_ALT) == LIGHT_LEVEL_DOWN_COMBO_ALT);
 
-    if (_touchMode == TouchMode::Joystick || _touchMode == TouchMode::Auto) {
-        _joystickTouchButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_R3);
-        _joystickRawDirection = poll.AnalogCursorDirection;
+    // "Pure" controller type (JOYPAD subclass 0) exposes the 16 retropad
+    // buttons as plain NDS inputs with no extra shortcuts wired to L2/R2/
+    // L3/R3 or SELECT+dpad. Useful when a Lua script or cheat wants those
+    // buttons for something else (e.g. MPH RTCom analog puts ZL/ZR here).
+    // Default JOYPAD keeps the shortcut behaviour.
+    const bool shortcuts =
+        (_device & RETRO_DEVICE_MASK) == RETRO_DEVICE_JOYPAD &&
+        (_device >> RETRO_DEVICE_TYPE_SHIFT) == 0;
 
-        if (_joystickTouchButton != _previousJoystickTouchButton || _joystickRawDirection != _previousJoystickRawDirection) {
-            // If the player moved, pressed, or released the joystick cursor within the past frame...
-            _lastPointerUpdate = poll.Timestamp;
+    if (shortcuts) {
+        _toggleLidButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_L3);
+        _micButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_L2);
+        _cycleLayoutButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_R2);
+
+        _lightLevelUpCombo = ((poll.JoypadButtons & LIGHT_LEVEL_UP_COMBO) == LIGHT_LEVEL_UP_COMBO) ||
+                            ((poll.JoypadButtons & LIGHT_LEVEL_UP_COMBO_ALT) == LIGHT_LEVEL_UP_COMBO_ALT);
+
+        _lightLevelDownCombo = ((poll.JoypadButtons & LIGHT_LEVEL_DOWN_COMBO) == LIGHT_LEVEL_DOWN_COMBO) ||
+                              ((poll.JoypadButtons & LIGHT_LEVEL_DOWN_COMBO_ALT) == LIGHT_LEVEL_DOWN_COMBO_ALT);
+
+        if (_touchMode == TouchMode::Joystick || _touchMode == TouchMode::Auto) {
+            _joystickTouchButton = poll.JoypadButtons & (1 << RETRO_DEVICE_ID_JOYPAD_R3);
+            _joystickRawDirection = poll.AnalogCursorDirection;
+
+            if (_joystickTouchButton != _previousJoystickTouchButton || _joystickRawDirection != _previousJoystickRawDirection) {
+                // If the player moved, pressed, or released the joystick cursor within the past frame...
+                _lastPointerUpdate = poll.Timestamp;
+            }
         }
+    } else {
+        _toggleLidButton = false;
+        _micButton = false;
+        _cycleLayoutButton = false;
+        _lightLevelUpCombo = false;
+        _lightLevelDownCombo = false;
+        _joystickTouchButton = false;
+        _joystickRawDirection = i16vec2(0, 0);
     }
 }
 

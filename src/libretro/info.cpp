@@ -52,13 +52,25 @@ const struct retro_subsystem_info MelonDsDs::subsystems[] = {
     {}
 };
 
+/* Two controller types:
+ *   "Nintendo DS (Shortcuts)"  — default; L2/R2/L3/R3 bound to
+ *                                Microphone / Cycle Screen Layout /
+ *                                Close Lid / Touch Joystick, plus
+ *                                Boktai-style light-level combos.
+ *   "Nintendo DS (Pure)"       — all 16 retropad buttons are just NDS
+ *                                input bits (the DS only uses 12 so the
+ *                                extras read as "no-op"). Use this when
+ *                                a script or cheat wants to repurpose
+ *                                L2/R2/L3/R3 (e.g. MPH RTCom analog
+ *                                needs ZL/ZR on the joypad). */
 const struct retro_controller_description MelonDsDs::controllers[] = {
-    {"Nintendo DS", RETRO_DEVICE_JOYPAD},
+    {"Nintendo DS (Shortcuts)", RETRO_DEVICE_JOYPAD},
+    {"Nintendo DS (Pure)",      RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 0)},
     {},
 };
 
 const struct retro_controller_info MelonDsDs::ports[] = {
-    {controllers, 1},
+    {controllers, 2},
     {},
 };
 

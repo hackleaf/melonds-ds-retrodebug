@@ -71,6 +71,26 @@ const struct retro_input_descriptor MelonDsDs::input_descriptors[] = {
         {},
 };
 
+/* "Pure" device: L2/R2/L3/R3 are unused by the core — labels reflect that
+ * so the frontend can surface them as raw retropad buttons instead of
+ * advertising shortcuts that aren't wired up. Analog stick descriptors
+ * are dropped too (no touch-joystick in Pure mode). */
+const struct retro_input_descriptor MelonDsDs::input_descriptors_pure[] = {
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,   "Left"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,     "Up"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,   "Down"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT,  "Right"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "A"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "B"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,  "Start"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "R"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "L"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "X"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,      "Y"},
+        {},
+};
+
 static const char *device_name(unsigned device) {
     switch (device) {
         case RETRO_DEVICE_NONE:
@@ -97,6 +117,16 @@ void MelonDsDs::InputState::SetControllerPortDevice(unsigned int port, unsigned 
 
     _inputDeviceType = device;
     _joypad.SetControllerPortDevice(port, device);
+
+    /* Re-emit input descriptors so the frontend's binding UI shows the
+     * right labels for the active device type. Pure mode has no
+     * L2/R2/L3/R3 shortcuts — leaving them unlabeled means a well-
+     * behaved frontend will treat them as raw retropad buttons. */
+    const bool pure =
+        (device & RETRO_DEVICE_MASK) == RETRO_DEVICE_JOYPAD &&
+        (device >> RETRO_DEVICE_TYPE_SHIFT) != 0;
+    retro::environment(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
+                       (void*)(pure ? input_descriptors_pure : input_descriptors));
 }
 
 void InputState::Update(const ScreenLayoutData& layout) noexcept {
